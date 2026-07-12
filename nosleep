@@ -15,7 +15,7 @@
 # credentials are fresh), so no password is needed when it fires.
 set -euo pipefail
 
-VERSION="1.1.0"
+VERSION="1.1.1"
 PIDFILE="/tmp/nosleep-timer.pid"   # format: "<pid> <deadline-epoch>"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nosleep"
 WHITELIST_FILE="$CONFIG_DIR/whitelist"
@@ -133,6 +133,7 @@ host_terminal() {
     vscode)         echo "Code" ;;
     ghostty)        echo "Ghostty" ;;
     WezTerm)        echo "wezterm-gui" ;;
+    WarpTerminal)   echo "Warp" ;;
   esac
 }
 
@@ -209,12 +210,13 @@ manage_whitelist() {
   load_whitelist
   ITEMS=(); MARKS=(); NOTES=()
 
-  local name
+  local apps name
+  apps=$(get_running_apps) || exit 1
   while IFS= read -r name; do
     is_protected "$name" && continue
     ITEMS+=("$name"); NOTES+=("")
     if in_whitelist "$name"; then MARKS+=(x); else MARKS+=(" "); fi
-  done < <(get_running_apps | sort -f)
+  done < <(printf '%s\n' "$apps" | sort -f)
 
   # Whitelisted apps that aren't running, keep them removable.
   local w found i
@@ -270,8 +272,9 @@ do_clean() {
   HOST_TERM="$(host_terminal)"
   load_whitelist
   ITEMS=(); MARKS=(); NOTES=()
-  local kept="" name
+  local kept="" apps name
 
+  apps=$(get_running_apps) || exit 1
   while IFS= read -r name; do
     if is_protected "$name"; then
       kept="$kept  🔒 $name"
@@ -280,7 +283,7 @@ do_clean() {
     else
       ITEMS+=("$name"); MARKS+=(x); NOTES+=("")
     fi
-  done < <(get_running_apps | sort -f)
+  done < <(printf '%s\n' "$apps" | sort -f)
 
   if [ "${#ITEMS[@]}" = 0 ]; then
     echo "Nothing to quit, everything running is whitelisted or protected."
