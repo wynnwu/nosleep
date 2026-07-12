@@ -1,0 +1,126 @@
+#!/bin/bash
+# nosleep, toggle macOS lid-close sleep prevention (pmset disablesleep)
+#
+#   nosleep           toggle on/off
+#   nosleep on        disable sleep indefinitely
+#   nosleep off       re-enable sleep
+#   nosleep 30m       disable sleep for 30 minutes (also Ns / Nh)
+#   nosleep status    show current state
+#   nosleep help      show usage
+#   nosleep version   show version
+#
+# Timed mode starts a root background timer immediately (while sudo
+# credentials are fresh), so no password is needed when it fires.
+set -euo pipefail
+
+VERSION="1.0.0"
+PIDFILE="/tmp/nosleep-timer.pid"   # format: "<pid> <deadline-epoch>"
+
+ESC=$'\033'
+RED="${ESC}[91m"; YEL="${ESC}[93m"; GRN="${ESC}[92m"; BLD="${ESC}[1m"; RST="${ESC}[0m"
+
+usage() {
+  cat <<'EOF'
+usage: nosleep [on|off|status|<N>s|<N>m|<N>h|help|version]
+
+  nosleep           toggle on/off
+  nosleep on        disable sleep until manually turned off
+  nosleep off       restore normal sleep
+  nosleep 30m       disable sleep for 30 minutes (also Ns / Nh)
+  nosleep status    show current state and time remaining
+EOF
+}
+
+# owl <color> <primary> [secondary]
+owl() {
+  local C="$1" primary="$2" secondary="${3:-}"
+  printf '\n'
+  printf '   %s ,_,  %s\n'  "$C" "$RST"
+  printf '   %s{o,o}%s   %s%s%s%s\n' "$C" "$RST" "$BLD" "$C" "$primary" "$RST"
+  printf '   %s/)__)%s   %s%s%s\n' "$C" "$RST" "$C" "$secondary" "$RST"
+  printf '   %s-"-"-%s\n' "$C" "$RST"
+  printf '\n'
+}
+
+fmt_duration() {
+  local s=$1
+  if   (( s >= 3600 )); then printf '%dh %dm' $(( s / 3600 )) $(( (s % 3600) / 60 ))
+  elif (( s >= 60 ));   then printf '%dm %ds' $(( s / 60 )) $(( s % 60 ))
+  else                       printf '%ds' "$s"
+  fi
+}
+
+state() {
+  if pmset -g | grep -q "SleepDisabled[[:space:]]*1"; then echo 1; else echo 0; fi
+}
+
+cancel_timer() {
+  if [ -f "$PIDFILE" ]; then
+    sudo kill "$(awk '{print $1}' "$PIDFILE")" 2>/dev/null || true
+    sudo rm -f "$PIDFILE"
+  fi
+}
+
+set_on() {
+  cancel_timer
+  sudo pmset -a disablesleep 1
+  owl "$RED" "No Sleep ON" "Until manually turned off."
+}
+
+set_off() {
+  cancel_timer
+  sudo pmset -a disablesleep 0
+  owl "$GRN" "Normal Sleep"
+}
+
+set_timed() {
+  local secs=$1
+  cancel_timer
+  sudo pmset -a disablesleep 1
+  local deadline
+  deadline=$(( $(date +%s) + secs ))
+  sudo bash -c "nohup bash -c 'sleep $secs; pmset -a disablesleep 0; rm -f $PIDFILE' >/dev/null 2>&1 & echo \"\$! $deadline\" > '$PIDFILE'"
+  owl "$YEL" "No Sleep ON" "Normal in $(fmt_duration "$secs")."
+}
+
+show_status() {
+  if [ "$(state)" = 1 ]; then
+    if [ -f "$PIDFILE" ]; then
+      local deadline remaining
+      deadline=$(awk '{print $2}' "$PIDFILE")
+      remaining=$(( deadline - $(date +%s) ))
+      if [ "$remaining" -gt 0 ]; then
+        owl "$YEL" "No Sleep ON" "Normal in $(fmt_duration "$remaining")."
+        return
+      fi
+    fi
+    owl "$RED" "No Sleep ON" "Until manually turned off."
+  else
+    owl "$GRN" "Normal Sleep"
+  fi
+}
+
+arg="${1:-toggle}"
+case "$arg" in
+  on)  set_on ;;
+  off) set_off ;;
+  status) show_status ;;
+  help|--help|-h) usage ;;
+  version|--version|-v) echo "nosleep $VERSION" ;;
+  toggle)
+    if [ "$(state)" = 1 ]; then set_off; else set_on; fi
+    ;;
+  *)
+    if [[ "$arg" =~ ^([0-9]+)([smh])$ ]]; then
+      n=${BASH_REMATCH[1]}
+      case "${BASH_REMATCH[2]}" in
+        s) set_timed "$n" ;;
+        m) set_timed $(( n * 60 )) ;;
+        h) set_timed $(( n * 3600 )) ;;
+      esac
+    else
+      usage >&2
+      exit 1
+    fi
+    ;;
+esac

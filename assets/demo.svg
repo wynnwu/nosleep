@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="450" font-family="SF Mono, Menlo, Monaco, 'Courier New', monospace" font-size="13">
+  <rect width="620" height="450" rx="10" fill="#16181d"/>
+  <!-- title bar -->
+  <circle cx="22" cy="20" r="6" fill="#ff5f57"/>
+  <circle cx="42" cy="20" r="6" fill="#febc2e"/>
+  <circle cx="62" cy="20" r="6" fill="#28c840"/>
+  <text x="310" y="24" fill="#7d8590" text-anchor="middle" font-size="12">nosleep, zsh</text>
+
+  <g xml:space="preserve">
+    <!-- block 1: nosleep on -->
+    <text x="24" y="60"  fill="#7d8590">$ <tspan fill="#e6e6e6">nosleep on</tspan></text>
+    <text x="24" y="88"  fill="#ff6b6b">    ,_,</text>
+    <text x="24" y="108" fill="#ff6b6b">   {o,o}   <tspan font-weight="bold">No Sleep ON</tspan></text>
+    <text x="24" y="128" fill="#ff6b6b">   /)__)   Until manually turned off.</text>
+    <text x="24" y="148" fill="#ff6b6b">   -"-"-</text>
+
+    <!-- block 2: nosleep 1h -->
+    <text x="24" y="190" fill="#7d8590">$ <tspan fill="#e6e6e6">nosleep 1h</tspan></text>
+    <text x="24" y="218" fill="#f5c451">    ,_,</text>
+    <text x="24" y="238" fill="#f5c451">   {o,o}   <tspan font-weight="bold">No Sleep ON</tspan></text>
+    <text x="24" y="258" fill="#f5c451">   /)__)   Normal in 1h 0m.</text>
+    <text x="24" y="278" fill="#f5c451">   -"-"-</text>
+
+    <!-- block 3: nosleep off -->
+    <text x="24" y="320" fill="#7d8590">$ <tspan fill="#e6e6e6">nosleep off</tspan></text>
+    <text x="24" y="348" fill="#5fd068">    ,_,</text>
+    <text x="24" y="368" fill="#5fd068">   {o,o}   <tspan font-weight="bold">Normal Sleep</tspan></text>
+    <text x="24" y="388" fill="#5fd068">   /)__)</text>
+    <text x="24" y="408" fill="#5fd068">   -"-"-</text>
+  </g>
+</svg>

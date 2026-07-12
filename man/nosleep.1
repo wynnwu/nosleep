@@ -1,0 +1,77 @@
+.TH NOSLEEP 1 "July 2026" "nosleep 1.0.0" "User Commands"
+.SH NAME
+nosleep \- keep a Mac awake with the lid closed, with an optional auto-off timer
+.SH SYNOPSIS
+.B nosleep
+.RI [ on | off | status | Ns | Nm | Nh | help | version ]
+.SH DESCRIPTION
+.B nosleep
+toggles the macOS
+.B pmset disablesleep
+setting, which prevents system sleep entirely \(em including clamshell
+(lid-close) sleep, and even on battery power. This is the only mechanism that
+keeps long-running work (builds, agents, downloads) alive with the lid shut;
+app-level power assertions such as those from caffeinate(8) or Amphetamine
+cannot override clamshell sleep on battery.
+.PP
+With no argument,
+.B nosleep
+toggles the current state. Each state change prints a colored owl banner:
+red for indefinitely on, yellow for on-with-timer, green for normal sleep.
+.SH COMMANDS
+.TP
+.B on
+Disable sleep until manually turned off.
+.TP
+.B off
+Restore normal sleep behavior. Cancels any pending timer.
+.TP
+.BR N s " | " N m " | " N h
+Disable sleep for N seconds, minutes, or hours, then restore it
+automatically. The auto-off runs from a root background process started
+immediately, so no sudo password is needed when it fires. A new duration
+replaces any pending timer \(em timers never stack.
+.TP
+.B status
+Show the current state, including time remaining on a pending timer.
+.TP
+.B help
+Show usage.
+.TP
+.B version
+Show the version.
+.SH HOW IT WORKS
+State changes call
+.BR "sudo pmset -a disablesleep" ,
+so you are prompted for your password (subject to normal sudo credential
+caching). Timed mode additionally launches a detached root process that
+sleeps for the duration and then runs
+.BR "pmset -a disablesleep 0" .
+Because that process is already root, it needs no later authentication and
+survives the terminal closing.
+.SH WARNINGS
+While enabled, the Mac stays fully awake with the lid closed
+.B even on battery.
+Do not put it in a bag \(em it will run hot and drain.
+.PP
+The
+.B disablesleep
+setting persists across reboots, but the auto-off timer does not. After a
+reboot mid-timer, sleep stays disabled until you run
+.BR "nosleep off" .
+.SH FILES
+.TP
+.I /tmp/nosleep-timer.pid
+PID and deadline (epoch seconds) of the pending auto-off timer.
+.SH EXAMPLES
+.TP
+.B nosleep 1h
+Keep the Mac awake for one hour, lid open or closed.
+.TP
+.B nosleep status
+See whether sleep is disabled and when it will restore.
+.SH SEE ALSO
+.BR pmset (1),
+.BR caffeinate (8)
+.SH AUTHOR
+Wynn Wu (https://github.com/wynnwu/nosleep)
