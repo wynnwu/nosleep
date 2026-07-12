@@ -8,7 +8,7 @@
 set -euo pipefail
 
 RAW="https://raw.githubusercontent.com/wynnwu/nosleep/main"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" || SCRIPT_DIR=""
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "nosleep only works on macOS (it drives pmset)." >&2
