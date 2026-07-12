@@ -57,6 +57,25 @@ nosleep 8h clean    # quit the rest, stay awake 8 hours
 
 First use will trigger macOS's one-time Automation permission prompts (System Events to list apps, then one per app on the first quit). The whitelist lives in `~/.config/nosleep/whitelist`; note it's built from **currently running** apps, so launch an app before trying to whitelist it.
 
+### Troubleshooting: "Could not list running apps"
+
+This means macOS is denying your terminal control of System Events (AppleScript error `-1743`). In order:
+
+1. **Grant it**: System Settings → Privacy & Security → Automation → find *the terminal app you're running nosleep in* (Terminal, Warp, iTerm2, …) → enable **System Events** under it. Test with:
+   ```sh
+   osascript -e 'tell application "System Events" to count processes'
+   ```
+2. **Restart the terminal app**, the toggle often doesn't take effect for already-running processes. Quit it fully (Cmd-Q) and reopen.
+3. **Still denied?** A stale denial may be recorded (e.g. from a denied prompt or a sandboxed run). Reset it so macOS prompts fresh:
+   ```sh
+   tccutil reset AppleEvents com.apple.Terminal      # Terminal.app
+   tccutil reset AppleEvents dev.warp.Warp-Stable    # Warp
+   tccutil reset AppleEvents com.googlecode.iterm2   # iTerm2
+   ```
+   Then rerun and click **Allow** on the prompt.
+
+Running inside tmux can also break this (the tmux server, not your terminal, gets attributed), `brew install reattach-to-user-namespace` or run nosleep outside tmux.
+
 ## How it works
 
 State changes run `sudo pmset -a disablesleep`, so you'll be asked for your password (normal sudo caching applies). Timed mode also launches a detached **root** background process right then, it sleeps for the duration, then runs `pmset -a disablesleep 0`. Because it's already root, it needs no password later, and it survives closing the terminal. Cost while waiting: ~1-2 MB RAM, zero CPU.

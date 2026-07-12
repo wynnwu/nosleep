@@ -15,7 +15,7 @@
 # credentials are fresh), so no password is needed when it fires.
 set -euo pipefail
 
-VERSION="1.1.1"
+VERSION="1.1.2"
 PIDFILE="/tmp/nosleep-timer.pid"   # format: "<pid> <deadline-epoch>"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nosleep"
 WHITELIST_FILE="$CONFIG_DIR/whitelist"
@@ -165,9 +165,15 @@ in_whitelist() {
 get_running_apps() {
   local out
   if ! out=$(running_dock_apps 2>/dev/null) || [ -z "$out" ]; then
-    echo "Could not list running apps. If macOS asked about Automation" >&2
-    echo "permission, grant it: System Settings > Privacy & Security >" >&2
-    echo "Automation > (your terminal) > System Events, then retry." >&2
+    echo "Could not list running apps, this terminal isn't authorized to" >&2
+    echo "control System Events. To fix:" >&2
+    echo "  1. System Settings > Privacy & Security > Automation >" >&2
+    echo "     (this terminal app) > enable System Events" >&2
+    echo "  2. Quit and reopen the terminal app, the change doesn't reach" >&2
+    echo "     already-running processes." >&2
+    echo "  3. Still denied? Reset and let macOS re-prompt:" >&2
+    echo "       tccutil reset AppleEvents <terminal-bundle-id>" >&2
+    echo "     (e.g. com.apple.Terminal, dev.warp.Warp-Stable)" >&2
     exit 1
   fi
   printf '%s\n' "$out"

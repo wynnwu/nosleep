@@ -1,4 +1,4 @@
-.TH NOSLEEP 1 "July 2026" "nosleep 1.1.1" "User Commands"
+.TH NOSLEEP 1 "July 2026" "nosleep 1.1.2" "User Commands"
 .SH NAME
 nosleep \- keep a Mac awake with the lid closed, with an optional auto-off timer
 .SH SYNOPSIS
@@ -58,7 +58,13 @@ removed. Saved to
 .PP
 The first use of clean/whitelist triggers macOS Automation permission
 prompts (System Events for listing apps, then one per app quit); approve
-them once.
+them once. If listing apps fails with a not-authorized error, enable
+System Events for your terminal under System Settings > Privacy &
+Security > Automation, then fully restart the terminal app; as a last
+resort reset the recorded decision with
+.B tccutil reset AppleEvents
+.I <terminal-bundle-id>
+and let macOS prompt again.
 .TP
 .B help
 Show usage.
