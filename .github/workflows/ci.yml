@@ -25,3 +25,17 @@ jobs:
             echo "invalid arg should exit non-zero" >&2
             exit 1
           fi
+          ./nosleep help | grep -q clean
+          if out=$(./nosleep clean </dev/null 2>&1); then
+            echo "clean without whitelist should exit non-zero" >&2
+            exit 1
+          fi
+          echo "$out" | grep -q "nosleep whitelist"
+          if ./nosleep whitelist </dev/null 2>/dev/null; then
+            echo "whitelist without a tty should exit non-zero" >&2
+            exit 1
+          fi
+          if ./nosleep off clean </dev/null 2>/dev/null; then
+            echo "clean+off should be rejected" >&2
+            exit 1
+          fi

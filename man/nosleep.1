@@ -1,9 +1,9 @@
-.TH NOSLEEP 1 "July 2026" "nosleep 1.0.0" "User Commands"
+.TH NOSLEEP 1 "July 2026" "nosleep 1.1.0" "User Commands"
 .SH NAME
 nosleep \- keep a Mac awake with the lid closed, with an optional auto-off timer
 .SH SYNOPSIS
 .B nosleep
-.RI [ on | off | status | Ns | Nm | Nh | help | version ]
+.RI [ on | off | status | clean | whitelist | Ns | Nm | Nh | help | version ]
 .SH DESCRIPTION
 .B nosleep
 toggles the macOS
@@ -35,6 +35,31 @@ replaces any pending timer \(em timers never stack.
 .B status
 Show the current state, including time remaining on a pending timer.
 .TP
+.B clean
+Quit every Dock application except the whitelist, then enable no-sleep
+(combine with a duration:
+.BR "nosleep 1h clean" ).
+Shows the apps it will quit first; individual apps can be deselected, and
+(q) aborts without changing anything. Quits are graceful (identical to
+Cmd-Q), so unsaved-work dialogs may appear. Menu-bar and background apps
+are never touched, nor are Finder and the terminal running the command.
+Requires a terminal (refuses to run non-interactively) and requires
+.B nosleep whitelist
+to have been run at least once. When a timed clean expires only sleep is
+restored \(em quit apps stay quit. Intended to cut power and network use
+while the Mac works lid-closed.
+.TP
+.B whitelist
+Manage which apps survive a clean. The list is built from the currently
+running Dock applications \(em to whitelist a new app, launch it first.
+Whitelisted apps that are not running are also shown so they can be
+removed. Saved to
+.IR ~/.config/nosleep/whitelist .
+.PP
+The first use of clean/whitelist triggers macOS Automation permission
+prompts (System Events for listing apps, then one per app quit); approve
+them once.
+.TP
 .B help
 Show usage.
 .TP
@@ -63,6 +88,11 @@ reboot mid-timer, sleep stays disabled until you run
 .TP
 .I /tmp/nosleep-timer.pid
 PID and deadline (epoch seconds) of the pending auto-off timer.
+.TP
+.I ~/.config/nosleep/whitelist
+Apps that survive a clean, one name per line
+(respects
+.BR XDG_CONFIG_HOME ).
 .SH EXAMPLES
 .TP
 .B nosleep 1h
@@ -70,6 +100,9 @@ Keep the Mac awake for one hour, lid open or closed.
 .TP
 .B nosleep status
 See whether sleep is disabled and when it will restore.
+.TP
+.B nosleep 8h clean
+Overnight agent run: quit everything but the whitelist, stay awake 8 hours.
 .SH SEE ALSO
 .BR pmset (1),
 .BR caffeinate (8)

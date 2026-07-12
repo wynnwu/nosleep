@@ -37,9 +37,25 @@ Or clone and run `./install.sh`. Installs a single bash script plus a man page; 
 | `nosleep 30m` | Stay awake 30 minutes, then auto-restore 🟡 (also `45s`, `2h`) |
 | `nosleep off` | Back to normal sleep 🟢 |
 | `nosleep status` | Current state + time remaining |
+| `nosleep clean` | Quit all Dock apps except your whitelist, then stay awake 🧹 |
+| `nosleep 1h clean` | Same, and restore normal sleep after 1 hour |
+| `nosleep whitelist` | Choose which apps survive a clean |
 | `nosleep help` / `version` | The obvious |
 
 A new duration **replaces** any pending timer, timers never stack. `nosleep 1h` followed by `nosleep 30m` means off in 30 minutes from the second call.
+
+## Clean mode
+
+Running lid-closed for hours? `nosleep clean` quits every Dock app except a whitelist you control, exactly as if you Cmd-Q'd them yourself, cutting power and network use before the long haul. Menu-bar apps, background agents, Finder, and the terminal you're running it from are never touched.
+
+```sh
+nosleep whitelist   # first time: pick the apps that survive (must be running to appear)
+nosleep 8h clean    # quit the rest, stay awake 8 hours
+```
+
+`clean` always shows what it's about to quit and lets you deselect apps or abort; it refuses to run non-interactively. Quits are graceful, so apps with unsaved work show their normal save dialogs. After a timed clean, only sleep is restored, apps stay quit.
+
+First use will trigger macOS's one-time Automation permission prompts (System Events to list apps, then one per app on the first quit). The whitelist lives in `~/.config/nosleep/whitelist`; note it's built from **currently running** apps, so launch an app before trying to whitelist it.
 
 ## How it works
 
