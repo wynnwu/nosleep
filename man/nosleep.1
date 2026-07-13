@@ -1,4 +1,4 @@
-.TH NOSLEEP 1 "July 2026" "nosleep 1.1.3" "User Commands"
+.TH NOSLEEP 1 "July 2026" "nosleep 1.2.0" "User Commands"
 .SH NAME
 nosleep \- keep a Mac awake with the lid closed, with an optional auto-off timer
 .SH SYNOPSIS
@@ -30,7 +30,9 @@ Restore normal sleep behavior. Cancels any pending timer.
 Disable sleep for N seconds, minutes, or hours, then restore it
 automatically. The auto-off runs from a root background process started
 immediately, so no sudo password is needed when it fires. A new duration
-replaces any pending timer \(em timers never stack.
+replaces any pending timer \(em timers never stack. Durations longer than
+one hour ask for confirmation before taking effect (skipped when not run
+interactively).
 .TP
 .B status
 Show the current state, including time remaining on a pending timer.
@@ -71,19 +73,28 @@ Show usage.
 .TP
 .B version
 Show the version.
+.SH BATTERY CUTOFF
+On a laptop, sleep is restored automatically whenever the battery charge
+falls below 15%, regardless of whether a timer is set, so an unattended
+lid-closed Mac cannot run its battery flat. A detached root process polls
+the charge roughly every 30 seconds; it exits (restoring sleep) at the
+cutoff or when a timer's deadline passes, whichever comes first. On
+desktops without a battery the cutoff never applies.
 .SH HOW IT WORKS
 State changes call
 .BR "sudo pmset -a disablesleep" ,
 so you are prompted for your password (subject to normal sudo credential
-caching). Timed mode additionally launches a detached root process that
-sleeps for the duration and then runs
+caching). Whenever sleep is disabled, a detached root process is launched
+to watch the deadline (if any) and the battery charge; when either
+condition is met it runs
 .BR "pmset -a disablesleep 0" .
 Because that process is already root, it needs no later authentication and
 survives the terminal closing.
 .SH WARNINGS
 While enabled, the Mac stays fully awake with the lid closed
 .B even on battery.
-Do not put it in a bag \(em it will run hot and drain.
+Do not put it in a bag \(em it will run hot. The 15% battery cutoff limits
+how flat it can drain but does not stop it running hot in the meantime.
 .PP
 The
 .B disablesleep

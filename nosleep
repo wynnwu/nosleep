@@ -15,10 +15,20 @@
 # credentials are fresh), so no password is needed when it fires.
 set -euo pipefail
 
-VERSION="1.1.3"
+VERSION="1.2.0"
 PIDFILE="/tmp/nosleep-timer.pid"   # format: "<pid> <deadline-epoch>"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nosleep"
 WHITELIST_FILE="$CONFIG_DIR/whitelist"
+
+BATTERY_MIN=15          # auto-restore sleep if battery drops below this percent
+POLL_INTERVAL=30        # seconds between battery/deadline checks in the watcher
+WARN_ABOVE=3600         # confirm before keeping awake longer than this (1h)
+
+# Absolute path to this script, so the background watcher can re-exec it as root.
+case "$0" in
+  */*) SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")" ;;
+  *)   SELF="$(command -v "$0")" ;;
+esac
 
 ESC=$'\033'
 RED="${ESC}[91m"; YEL="${ESC}[93m"; GRN="${ESC}[92m"; BLD="${ESC}[1m"; DIM="${ESC}[2m"; RST="${ESC}[0m"
@@ -35,6 +45,9 @@ usage: nosleep [on|off|status|clean|whitelist|<N>s|<N>m|<N>h|help|version]
   nosleep clean       quit all Dock apps except your whitelist, then no-sleep
   nosleep 1h clean    same, and restore normal sleep after 1 hour
   nosleep whitelist   manage which apps survive a clean (pulls from running apps)
+
+Sleep is restored automatically if the battery drops below 15%.
+Durations over 1 hour ask for confirmation first.
 EOF
 }
 
@@ -68,10 +81,74 @@ cancel_timer() {
   fi
 }
 
+# True on machines with an internal battery (laptops); false on desktops.
+has_battery() {
+  pmset -g batt 2>/dev/null | grep -q 'InternalBattery'
+}
+
+# Current battery charge as an integer percent, or empty if there's no battery.
+battery_pct() {
+  pmset -g batt 2>/dev/null | grep -Eo '[0-9]+%' | head -1 | tr -d '%'
+}
+
+# Dim note (laptops only) advertising the low-battery cutoff.
+battery_note() {
+  has_battery || return 0
+  printf '   %sWill restore sleep if battery drops below %d%%.%s\n\n' \
+    "$DIM" "$BATTERY_MIN" "$RST"
+}
+
+# Root background watcher: restore sleep when the deadline passes (0 = never)
+# or the battery falls below BATTERY_MIN. Re-executed as root via SELF __watch.
+run_watch() {
+  local deadline="$1" now b nap
+  while :; do
+    now=$(date +%s)
+    if [ "$deadline" != 0 ] && [ "$now" -ge "$deadline" ]; then break; fi
+    b=$(battery_pct) || true
+    if [ -n "$b" ] && [ "$b" -lt "$BATTERY_MIN" ]; then break; fi
+    nap=$POLL_INTERVAL
+    if [ "$deadline" != 0 ]; then
+      local rem=$(( deadline - now ))
+      (( rem < nap )) && nap=$rem
+      (( nap < 1 )) && nap=1
+    fi
+    sleep "$nap"
+  done
+  pmset -a disablesleep 0
+  rm -f "$PIDFILE"
+}
+
+# Launch run_watch detached as root, recording "<pid> <deadline>" in PIDFILE.
+# Skipped only when there's nothing to watch: no deadline and no battery.
+start_watcher() {
+  local deadline="$1"
+  if [ "$deadline" = 0 ] && ! has_battery; then
+    return 0
+  fi
+  sudo bash -c "nohup '$SELF' __watch $deadline >/dev/null 2>&1 & echo \"\$! $deadline\" > '$PIDFILE'"
+}
+
+# Guard against unattended lid-closed runs longer than an hour.
+confirm_long_duration() {
+  local secs=$1
+  (( secs > WARN_ABOVE )) || return 0
+  [ -t 0 ] || return 0   # non-interactive: can't prompt, so proceed
+  printf '%s⚠️  Keep the computer awake for %s while the lid is closed?%s [y/N] ' \
+    "$YEL" "$(fmt_duration "$secs")" "$RST"
+  local ans; read -r ans
+  case "$ans" in
+    y|Y|yes|Yes) return 0 ;;
+    *) echo "Aborted."; exit 1 ;;
+  esac
+}
+
 set_on() {
   cancel_timer
   sudo pmset -a disablesleep 1
+  start_watcher 0
   owl "$RED" "No Sleep ON" "Until manually turned off."
+  battery_note
 }
 
 set_off() {
@@ -86,8 +163,9 @@ set_timed() {
   sudo pmset -a disablesleep 1
   local deadline
   deadline=$(( $(date +%s) + secs ))
-  sudo bash -c "nohup bash -c 'sleep $secs; pmset -a disablesleep 0; rm -f $PIDFILE' >/dev/null 2>&1 & echo \"\$! $deadline\" > '$PIDFILE'"
+  start_watcher "$deadline"
   owl "$YEL" "No Sleep ON" "Normal in $(fmt_duration "$secs")."
+  battery_note
 }
 
 show_status() {
@@ -330,6 +408,12 @@ do_clean() {
 
 # ---------- dispatch ----------
 
+# Internal: root background watcher, re-executed by start_watcher.
+if [ "${1:-}" = "__watch" ]; then
+  run_watch "${2:-0}"
+  exit 0
+fi
+
 DUR=""
 CLEAN=0
 CMD=""
@@ -357,6 +441,9 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+# Confirm long lid-closed runs before quitting apps or flipping any setting.
+[ -n "$DUR" ] && confirm_long_duration "$DUR"
 
 if [ "$CLEAN" = 1 ]; then
   if [ -n "$CMD" ]; then

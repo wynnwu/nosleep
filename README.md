@@ -44,6 +44,11 @@ Or clone and run `./install.sh`. Installs a single bash script plus a man page; 
 
 A new duration **replaces** any pending timer, timers never stack. `nosleep 1h` followed by `nosleep 30m` means off in 30 minutes from the second call.
 
+Two safety defaults are always on:
+
+- **Low-battery cutoff.** On a laptop, sleep is restored automatically if the battery drops below **15%**, whether or not a timer is set, so an unattended lid-closed Mac can't run itself flat. Every "on" banner notes this.
+- **Long-run confirmation.** Asking for **more than 1 hour** (`nosleep 90m`, `nosleep 8h`, `nosleep 2h clean`) prompts *"Keep the computer awake for … while the lid is closed?"* before doing anything. Answer `y` to proceed. (Skipped when nosleep isn't run interactively.)
+
 ## Clean mode
 
 Running lid-closed for hours? `nosleep clean` quits every Dock app except a whitelist you control, exactly as if you Cmd-Q'd them yourself, cutting power and network use before the long haul. Menu-bar apps, background agents, Finder, and the terminal you're running it from are never touched.
@@ -78,11 +83,11 @@ Running inside tmux can also break this (the tmux server, not your terminal, get
 
 ## How it works
 
-State changes run `sudo pmset -a disablesleep`, so you'll be asked for your password (normal sudo caching applies). Timed mode also launches a detached **root** background process right then, it sleeps for the duration, then runs `pmset -a disablesleep 0`. Because it's already root, it needs no password later, and it survives closing the terminal. Cost while waiting: ~1-2 MB RAM, zero CPU.
+State changes run `sudo pmset -a disablesleep`, so you'll be asked for your password (normal sudo caching applies). Whenever sleep is disabled, a detached **root** background process is launched right then, it polls roughly every 30 seconds and runs `pmset -a disablesleep 0` as soon as the timer's deadline passes *or* the battery falls below 15%, whichever comes first. Because it's already root, it needs no password later, and it survives closing the terminal. Cost while waiting: ~1-2 MB RAM, near-zero CPU.
 
 ## ⚠️ Warnings
 
-- While on, your Mac stays fully awake with the lid closed **even on battery**. Don't bag it.
+- While on, your Mac stays fully awake with the lid closed **even on battery**. The 15% cutoff keeps it from draining flat, but it can still run hot, don't bag it.
 - `disablesleep` **persists across reboots**; the auto-off timer does not. If you reboot mid-timer, run `nosleep off` (or check `nosleep status`).
 - macOS only. Requires an admin account (sudo).
 
