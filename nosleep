@@ -15,7 +15,7 @@
 # credentials are fresh), so no password is needed when it fires.
 set -euo pipefail
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 PIDFILE="/tmp/nosleep-timer.pid"   # format: "<pid> <deadline-epoch>"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nosleep"
 WHITELIST_FILE="$CONFIG_DIR/whitelist"
@@ -23,6 +23,9 @@ WHITELIST_FILE="$CONFIG_DIR/whitelist"
 BATTERY_MIN=15          # auto-restore sleep if battery drops below this percent
 POLL_INTERVAL=30        # seconds between battery/deadline checks in the watcher
 WARN_ABOVE=3600         # confirm before keeping awake longer than this (1h)
+LID_POLL=2              # seconds between lid checks while the lid is open (chime)
+DEFAULT_SOUND="Submarine"        # chime on lid-close; change via 'nosleep sound'
+SOUND_FILE="$CONFIG_DIR/sound"   # stores the chime name, or "off"
 
 # Absolute path to this script, so the background watcher can re-exec it as root.
 case "$0" in
@@ -35,7 +38,7 @@ RED="${ESC}[91m"; YEL="${ESC}[93m"; GRN="${ESC}[92m"; BLD="${ESC}[1m"; DIM="${ES
 
 usage() {
   cat <<'EOF'
-usage: nosleep [on|off|status|clean|whitelist|<N>s|<N>m|<N>h|help|version]
+usage: nosleep [on|off|status|clean|whitelist|sound|insist|<N>s|<N>m|<N>h|help|version]
 
   nosleep             toggle on/off
   nosleep on          disable sleep until manually turned off
@@ -44,9 +47,12 @@ usage: nosleep [on|off|status|clean|whitelist|<N>s|<N>m|<N>h|help|version]
   nosleep status      show current state and time remaining
   nosleep clean       quit all Dock apps except your whitelist, then no-sleep
   nosleep 1h clean    same, and restore normal sleep after 1 hour
+  nosleep insist      turn on even below 15% battery (disables the cutoff)
+  nosleep sound       manage the lid-close chime (sound <Name> | off | on)
   nosleep whitelist   manage which apps survive a clean (pulls from running apps)
 
-Sleep is restored automatically if the battery drops below 15%.
+On a laptop, closing the lid while on plays a chime (see 'nosleep sound').
+Sleep is restored automatically if the battery drops below 15% (unless you insist).
 Durations over 1 hour ask for confirmation first.
 EOF
 }
@@ -70,8 +76,11 @@ fmt_duration() {
   fi
 }
 
+# Capture-then-match (no pipe): `grep -q` would close the pipe early and, under
+# `set -o pipefail`, a SIGPIPE from pmset could flip the result. See has_battery.
 state() {
-  if pmset -g | grep -q "SleepDisabled[[:space:]]*1"; then echo 1; else echo 0; fi
+  local o; o=$(pmset -g 2>/dev/null) || true
+  if [[ "$o" =~ SleepDisabled[[:space:]]+1 ]]; then echo 1; else echo 0; fi
 }
 
 cancel_timer() {
@@ -82,34 +91,178 @@ cancel_timer() {
 }
 
 # True on machines with an internal battery (laptops); false on desktops.
+# Capture-then-match, not `| grep -q`: under `set -o pipefail`, grep closing the
+# pipe early can SIGPIPE pmset and make the pipeline (wrongly) report failure.
 has_battery() {
-  pmset -g batt 2>/dev/null | grep -q 'InternalBattery'
+  case "$(pmset -g batt 2>/dev/null)" in
+    *InternalBattery*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Current battery charge as an integer percent, or empty if there's no battery.
+# Bash-regex on captured output (no pipe) for the same pipefail-safety reason.
 battery_pct() {
-  pmset -g batt 2>/dev/null | grep -Eo '[0-9]+%' | head -1 | tr -d '%'
+  local o; o=$(pmset -g batt 2>/dev/null) || true
+  [[ "$o" =~ ([0-9]+)% ]] && printf '%s' "${BASH_REMATCH[1]}"
 }
 
-# Dim note (laptops only) advertising the low-battery cutoff.
-battery_note() {
+# Dim hints shown under the "No Sleep ON" banner (laptops only): the low-battery
+# cutoff (or an insist warning) and, when the lid-close chime is on, a reminder
+# that it's active.
+activation_note() {
   has_battery || return 0
-  printf '   %sWill restore sleep if battery drops below %d%%.%s\n\n' \
-    "$DIM" "$BATTERY_MIN" "$RST"
+  if [ "${INSIST:-0}" = 1 ]; then
+    printf '   %s⚠️  Battery safety OFF for this session (insisted).%s\n' \
+      "$YEL" "$RST"
+  else
+    printf '   %sWill restore sleep if battery drops below %d%%.%s\n' \
+      "$DIM" "$BATTERY_MIN" "$RST"
+  fi
+  [ "$(load_sound)" != off ] && \
+    printf '   %sLid close sound reminder ON%s\n' "$DIM" "$RST"
+  printf '\n'
 }
 
-# Root background watcher: restore sleep when the deadline passes (0 = never)
-# or the battery falls below BATTERY_MIN. Re-executed as root via SELF __watch.
+# Rebuild the command the user ran, with 'insist' added, for the refusal hint.
+insist_suggestion() {
+  local s="nosleep"
+  [ -n "${DUR_TOKEN:-}" ] && s="$s $DUR_TOKEN"
+  s="$s insist"
+  [ "${CLEAN:-0}" = 1 ] && s="$s clean"
+  printf '%s' "$s"
+}
+
+# Refuse to enable when the battery is below the cutoff, unless the user
+# insisted. Runs before any enable path touches pmset (and before clean quits
+# apps). Exits the process on refusal.
+battery_guard() {
+  [ "${INSIST:-0}" = 1 ] && return 0
+  has_battery || return 0
+  local b; b=$(battery_pct) || return 0
+  [ -n "$b" ] || return 0
+  if [ "$b" -lt "$BATTERY_MIN" ]; then
+    printf '%sBattery <%d%%. nosleep not enabled.%s\n' "$YEL" "$BATTERY_MIN" "$RST"
+    printf "'%s' to turn on anyway.\n" "$(insist_suggestion)"
+    exit 1
+  fi
+}
+
+# ----- lid-close chime -----
+
+# True when the clamshell (lid) is physically closed. Reflects the hardware
+# sensor, so it works even while disablesleep keeps the Mac awake. Capture-then-
+# match, not `| grep -q`: ioreg's output is larger than the pipe buffer, so a
+# grep that matched and exited early would SIGPIPE ioreg and, under pipefail,
+# misreport the lid as open (the same hazard fixed in has_battery/state).
+lid_closed() {
+  local o; o=$(ioreg -r -k AppleClamshellState -d 4 2>/dev/null) || true
+  [[ "$o" == *'"AppleClamshellState" = Yes'* ]]
+}
+
+# Names of the stock system sounds, one per line.
+list_sounds() {
+  local f
+  for f in /System/Library/Sounds/*.aiff; do
+    [ -e "$f" ] || continue
+    basename "$f" .aiff
+  done
+}
+
+# Effective chime setting: a sound name, or "off". A missing/blank config, or a
+# stored name whose file has vanished, falls back to DEFAULT_SOUND.
+load_sound() {
+  local v
+  if [ -f "$SOUND_FILE" ]; then
+    v=$(head -1 "$SOUND_FILE" 2>/dev/null || true)
+    case "$v" in
+      off) echo off; return ;;
+      "")  echo "$DEFAULT_SOUND"; return ;;
+      *)
+        if [ -f "/System/Library/Sounds/$v.aiff" ]; then echo "$v"
+        else echo "$DEFAULT_SOUND"; fi
+        return ;;
+    esac
+  fi
+  echo "$DEFAULT_SOUND"
+}
+
+# Play a chime into the logged-in user's audio session. Called from the root
+# watcher, which can't reach that session directly, so it hops to the console
+# user via launchctl. Best-effort and backgrounded: never blocks or breaks the
+# watcher's real job.
+play_sound() {
+  local f="/System/Library/Sounds/$1.aiff"
+  [ -f "$f" ] || return 0
+  local user uid
+  user=$(stat -f%Su /dev/console 2>/dev/null || true)
+  { [ -z "$user" ] || [ "$user" = root ]; } && return 0
+  uid=$(id -u "$user" 2>/dev/null || true)
+  [ -n "$uid" ] || return 0
+  launchctl asuser "$uid" sudo -u "$user" afplay "$f" >/dev/null 2>&1 &
+}
+
+# Interactive 'nosleep sound' subcommand: show/enable/disable/set the chime.
+cmd_sound() {
+  local arg="${1:-}"
+  mkdir -p "$CONFIG_DIR"
+  case "$arg" in
+    "")
+      local cur; cur=$(load_sound)
+      printf 'Lid-close chime: %s%s%s\n' "$BLD" "$cur" "$RST"
+      printf '%sChange with: nosleep sound <Name> | off | on%s\n' "$DIM" "$RST"
+      echo "Available sounds:"
+      list_sounds | sed 's/^/  /'
+      ;;
+    off)
+      echo off > "$SOUND_FILE"
+      echo "Lid-close chime disabled."
+      ;;
+    on)
+      rm -f "$SOUND_FILE"
+      echo "Lid-close chime enabled (default: $DEFAULT_SOUND)."
+      ;;
+    *)
+      local f="/System/Library/Sounds/$arg.aiff"
+      if [ ! -f "$f" ]; then
+        echo "No system sound named '$arg'. Available:" >&2
+        list_sounds | sed 's/^/  /' >&2
+        exit 1
+      fi
+      printf '%s\n' "$arg" > "$SOUND_FILE"
+      echo "Lid-close chime set to $arg."
+      afplay "$f" >/dev/null 2>&1 || true   # preview
+      ;;
+  esac
+}
+
+# Root background watcher: restore sleep when the deadline passes (0 = never) or
+# the battery falls below batt_min (0 = never, when insisted). When a chime is
+# set it also watches the lid and plays a sound on each open->closed transition,
+# fast-polling (LID_POLL) only while the lid is open. Re-executed as root via
+# SELF __watch <deadline> <batt_min> <sound>.
 run_watch() {
-  local deadline="$1" now b nap
+  local deadline="${1:-0}" batt_min="${2:-$BATTERY_MIN}" snd="${3:-off}"
+  local now b nap rem last_batt=0 closed prev_closed=0
+  [ "$snd" != off ] && lid_closed && prev_closed=1
   while :; do
     now=$(date +%s)
     if [ "$deadline" != 0 ] && [ "$now" -ge "$deadline" ]; then break; fi
-    b=$(battery_pct) || true
-    if [ -n "$b" ] && [ "$b" -lt "$BATTERY_MIN" ]; then break; fi
-    nap=$POLL_INTERVAL
+    if [ "$batt_min" != 0 ] && [ $(( now - last_batt )) -ge "$POLL_INTERVAL" ]; then
+      b=$(battery_pct) || true
+      if [ -n "$b" ] && [ "$b" -lt "$batt_min" ]; then break; fi
+      last_batt=$now
+    fi
+    if [ "$snd" != off ]; then
+      if lid_closed; then closed=1; else closed=0; fi
+      if [ "$closed" = 1 ] && [ "$prev_closed" = 0 ]; then play_sound "$snd"; fi
+      prev_closed=$closed
+      if [ "$closed" = 1 ]; then nap=$POLL_INTERVAL; else nap=$LID_POLL; fi
+    else
+      nap=$POLL_INTERVAL
+    fi
     if [ "$deadline" != 0 ]; then
-      local rem=$(( deadline - now ))
+      rem=$(( deadline - now ))
       (( rem < nap )) && nap=$rem
       (( nap < 1 )) && nap=1
     fi
@@ -120,13 +273,21 @@ run_watch() {
 }
 
 # Launch run_watch detached as root, recording "<pid> <deadline>" in PIDFILE.
-# Skipped only when there's nothing to watch: no deadline and no battery.
+# Skipped only when nothing needs watching: no deadline, no battery cutoff to
+# enforce, and no chime. The chime is a laptop feature (needs a lid), so it's
+# gated on has_battery to keep desktops watcher-free.
 start_watcher() {
   local deadline="$1"
-  if [ "$deadline" = 0 ] && ! has_battery; then
-    return 0
-  fi
-  sudo bash -c "nohup '$SELF' __watch $deadline >/dev/null 2>&1 & echo \"\$! $deadline\" > '$PIDFILE'"
+  local batt_min="${EFFECTIVE_BATT_MIN:-$BATTERY_MIN}"
+  local snd; snd=$(load_sound)
+  local bat=0; has_battery && bat=1
+  [ "$bat" = 1 ] || snd=off
+  local need=0
+  [ "$deadline" != 0 ] && need=1
+  [ "$batt_min" != 0 ] && [ "$bat" = 1 ] && need=1
+  [ "$snd" != off ] && need=1
+  [ "$need" = 0 ] && return 0
+  sudo bash -c "nohup '$SELF' __watch $deadline $batt_min '$snd' >/dev/null 2>&1 & echo \"\$! $deadline\" > '$PIDFILE'"
 }
 
 # Guard against unattended lid-closed runs longer than an hour.
@@ -148,7 +309,7 @@ set_on() {
   sudo pmset -a disablesleep 1
   start_watcher 0
   owl "$RED" "No Sleep ON" "Until manually turned off."
-  battery_note
+  activation_note
 }
 
 set_off() {
@@ -165,7 +326,7 @@ set_timed() {
   deadline=$(( $(date +%s) + secs ))
   start_watcher "$deadline"
   owl "$YEL" "No Sleep ON" "Normal in $(fmt_duration "$secs")."
-  battery_note
+  activation_note
 }
 
 show_status() {
@@ -410,16 +571,26 @@ do_clean() {
 
 # Internal: root background watcher, re-executed by start_watcher.
 if [ "${1:-}" = "__watch" ]; then
-  run_watch "${2:-0}"
+  run_watch "${2:-0}" "${3:-$BATTERY_MIN}" "${4:-off}"
+  exit 0
+fi
+
+# 'nosleep sound' manages the lid-close chime.
+if [ "${1:-}" = sound ]; then
+  shift
+  cmd_sound "${1:-}"
   exit 0
 fi
 
 DUR=""
+DUR_TOKEN=""
 CLEAN=0
+INSIST=0
 CMD=""
 for arg in "$@"; do
   case "$arg" in
     clean) CLEAN=1 ;;
+    insist) INSIST=1 ;;
     on|off|status|toggle|whitelist)
       [ -n "$CMD" ] && { usage >&2; exit 1; }
       CMD="$arg"
@@ -429,6 +600,7 @@ for arg in "$@"; do
     *)
       if [[ "$arg" =~ ^([0-9]+)([smh])$ ]]; then
         n=${BASH_REMATCH[1]}
+        DUR_TOKEN="$arg"
         case "${BASH_REMATCH[2]}" in
           s) DUR=$n ;;
           m) DUR=$(( n * 60 )) ;;
@@ -441,6 +613,31 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+# insist only makes sense when enabling.
+if [ "$INSIST" = 1 ]; then
+  case "${CMD:-}" in
+    ""|on|toggle) ;;
+    *) echo "insist can't be combined with '$CMD'." >&2; exit 1 ;;
+  esac
+fi
+
+# Insisting disables the watcher's battery cutoff for this session.
+EFFECTIVE_BATT_MIN=$BATTERY_MIN
+[ "$INSIST" = 1 ] && EFFECTIVE_BATT_MIN=0
+
+# Will this invocation enable no-sleep? Guard the battery before we prompt for a
+# long run or (in clean) quit anything.
+WILL_ENABLE=0
+if [ "$CLEAN" = 1 ] || [ -n "$DUR" ]; then
+  WILL_ENABLE=1
+else
+  case "${CMD:-toggle}" in
+    on) WILL_ENABLE=1 ;;
+    toggle) [ "$(state)" = 1 ] || WILL_ENABLE=1 ;;
+  esac
+fi
+[ "$WILL_ENABLE" = 1 ] && battery_guard
 
 # Confirm long lid-closed runs before quitting apps or flipping any setting.
 [ -n "$DUR" ] && confirm_long_duration "$DUR"

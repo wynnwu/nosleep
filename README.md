@@ -74,14 +74,29 @@ Or clone and run `./install.sh`. Installs a single bash script plus a man page; 
 | `nosleep clean` | Quit all Dock apps except your whitelist, then stay awake 🧹 |
 | `nosleep 1h clean` | Same, and restore normal sleep after 1 hour |
 | `nosleep whitelist` | Choose which apps survive a clean |
+| `nosleep insist` | Turn on even below 15% battery (disables the cutoff) 🪫 |
+| `nosleep sound` | Manage the lid-close chime (`sound Glass` / `off` / `on`) 🔔 |
 | `nosleep help` / `version` | The obvious |
 
 A new duration **replaces** any pending timer; timers never stack. `nosleep 1h` followed by `nosleep 30m` means off in 30 minutes from the second call.
 
 Two safety defaults are always on:
 
-- **Low-battery cutoff.** On a laptop, sleep is restored automatically if the battery drops below **15%**, whether or not a timer is set, so an unattended lid-closed Mac can't run itself flat. Every "on" banner notes this.
+- **Low-battery cutoff.** On a laptop, sleep is restored automatically if the battery drops below **15%**, whether or not a timer is set, so an unattended lid-closed Mac can't run itself flat. Trying to turn on when you're *already* below 15% is refused outright (`Battery <15%. nosleep not enabled.`) rather than switching on for a moment and dropping straight back off; reissue the same command with `insist` to override and run with the cutoff disabled.
 - **Long-run confirmation.** Asking for **more than 1 hour** (`nosleep 90m`, `nosleep 8h`, `nosleep 2h clean`) prompts *"Keep the computer awake for … while the lid is closed?"* before doing anything. Answer `y` to proceed. (Skipped when nosleep isn't run interactively.)
+
+## Lid-close chime 🔔
+
+On a laptop, closing the lid while nosleep is on plays a short sound, so you get audible confirmation it's holding the machine awake without reopening to check. Opening the lid is silent.
+
+```sh
+nosleep sound          # show the current chime and list available sounds
+nosleep sound Glass    # pick any /System/Library/Sounds name (previews it)
+nosleep sound off      # silence it
+nosleep sound on       # back to the default (Submarine)
+```
+
+On by default. It's laptop-only (it needs a lid), the sound plays through your speakers even with the lid shut, and it lands within about 2 seconds of closing. Reopening and re-closing in quick succession may skip the chime.
 
 ## Clean mode
 
@@ -117,11 +132,11 @@ Running inside tmux can also break this (the tmux server, not your terminal, get
 
 ## How it works
 
-State changes run `sudo pmset -a disablesleep`, so you'll be asked for your password (normal sudo caching applies). Whenever sleep is disabled, a detached **root** background process is launched right then; it polls roughly every 30 seconds and runs `pmset -a disablesleep 0` as soon as the timer's deadline passes *or* the battery falls below 15%, whichever comes first. Because it's already root, it needs no password later, and it survives closing the terminal. Cost while waiting: ~1-2 MB RAM, near-zero CPU.
+State changes run `sudo pmset -a disablesleep`, so you'll be asked for your password (normal sudo caching applies). Whenever sleep is disabled, a detached **root** background process is launched right then; it polls roughly every 30 seconds and runs `pmset -a disablesleep 0` as soon as the timer's deadline passes *or* the battery falls below 15%, whichever comes first. Because it's already root, it needs no password later, and it survives closing the terminal. Cost while waiting: ~1-2 MB RAM, near-zero CPU. When the lid-close chime is on, that same process also watches the lid, every ~2 seconds while it's open and every ~30 seconds once it's shut, and plays the sound into your user session when it closes.
 
 ## ⚠️ Warnings
 
-- While on, your Mac stays fully awake with the lid closed **even on battery**. The 15% cutoff keeps it from draining flat, but it can still run hot, so don't bag it.
+- While on, your Mac stays fully awake with the lid closed **even on battery**. The 15% cutoff keeps it from draining flat, but it can still run hot, so don't bag it. `nosleep insist` turns that cutoff **off** for the session, so only insist when the Mac is attended or on AC.
 - `disablesleep` **persists across reboots**; the auto-off timer does not. If you reboot mid-timer, run `nosleep off` (or check `nosleep status`).
 - macOS only. Requires an admin account (sudo).
 

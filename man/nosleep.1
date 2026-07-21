@@ -1,14 +1,14 @@
-.TH NOSLEEP 1 "July 2026" "nosleep 1.2.0" "User Commands"
+.TH NOSLEEP 1 "July 2026" "nosleep 1.3.0" "User Commands"
 .SH NAME
 nosleep \- keep a Mac awake with the lid closed, with an optional auto-off timer
 .SH SYNOPSIS
 .B nosleep
-.RI [ on | off | status | clean | whitelist | Ns | Nm | Nh | help | version ]
+.RI [ on | off | status | clean | whitelist | sound | insist | Ns | Nm | Nh | help | version ]
 .SH DESCRIPTION
 .B nosleep
 toggles the macOS
 .B pmset disablesleep
-setting, which prevents system sleep entirely \(em including clamshell
+setting, which prevents system sleep entirely, including clamshell
 (lid-close) sleep, and even on battery power. This is the only mechanism that
 keeps long-running work (builds, agents, downloads) alive with the lid shut;
 app-level power assertions such as those from caffeinate(8) or Amphetamine
@@ -30,9 +30,18 @@ Restore normal sleep behavior. Cancels any pending timer.
 Disable sleep for N seconds, minutes, or hours, then restore it
 automatically. The auto-off runs from a root background process started
 immediately, so no sudo password is needed when it fires. A new duration
-replaces any pending timer \(em timers never stack. Durations longer than
+replaces any pending timer; timers never stack. Durations longer than
 one hour ask for confirmation before taking effect (skipped when not run
 interactively).
+.TP
+.B insist
+Enable no-sleep even when the battery is below the 15% cutoff. Combines with
+any enable form (bare,
+.IR N s/ N m/ N h ,
+or clean) and disables the low-battery cutoff for that session, so the run
+is held until you turn it off (or the timer expires). Without it, trying to
+enable below 15% is refused with a hint to reissue the command plus
+.BR insist .
 .TP
 .B status
 Show the current state, including time remaining on a pending timer.
@@ -48,15 +57,28 @@ are never touched, nor are Finder and the terminal running the command.
 Requires a terminal (refuses to run non-interactively) and requires
 .B nosleep whitelist
 to have been run at least once. When a timed clean expires only sleep is
-restored \(em quit apps stay quit. Intended to cut power and network use
+restored; quit apps stay quit. Intended to cut power and network use
 while the Mac works lid-closed.
 .TP
 .B whitelist
 Manage which apps survive a clean. The list is built from the currently
-running Dock applications \(em to whitelist a new app, launch it first.
+running Dock applications; to whitelist a new app, launch it first.
 Whitelisted apps that are not running are also shown so they can be
 removed. Saved to
 .IR ~/.config/nosleep/whitelist .
+.TP
+.BR sound " [" Name | off | on ]
+Manage the lid-close chime (laptops only). With no argument, show the
+current setting and list the available system sounds.
+.B off
+silences it,
+.B on
+restores the default, and a
+.I Name
+(any sound under /System/Library/Sounds, such as
+.IR Submarine )
+sets and previews it. Saved to
+.IR ~/.config/nosleep/sound .
 .PP
 The first use of clean/whitelist triggers macOS Automation permission
 prompts (System Events for listing apps, then one per app quit); approve
@@ -79,7 +101,21 @@ falls below 15%, regardless of whether a timer is set, so an unattended
 lid-closed Mac cannot run its battery flat. A detached root process polls
 the charge roughly every 30 seconds; it exits (restoring sleep) at the
 cutoff or when a timer's deadline passes, whichever comes first. On
-desktops without a battery the cutoff never applies.
+desktops without a battery the cutoff never applies. Passing
+.B insist
+overrides the cutoff for a single session.
+.SH LID-CLOSE CHIME
+On a laptop, while no-sleep is on, closing the lid plays a short system
+sound as audible confirmation that the Mac is being held awake; opening the
+lid is silent. It is on by default (the
+.I Submarine
+sound) and managed with
+.BR "nosleep sound" .
+The sound is played into the logged-in user's audio session, so it is
+audible with the lid shut. While the lid is open it is polled about every
+two seconds so the chime is prompt; once closed, polling drops back to the
+roughly 30-second cadence, so reopening and re-closing within that window
+may not chime. Desktops (no lid) are unaffected.
 .SH HOW IT WORKS
 State changes call
 .BR "sudo pmset -a disablesleep" ,
@@ -93,8 +129,10 @@ survives the terminal closing.
 .SH WARNINGS
 While enabled, the Mac stays fully awake with the lid closed
 .B even on battery.
-Do not put it in a bag \(em it will run hot. The 15% battery cutoff limits
+Do not put it in a bag; it will run hot. The 15% battery cutoff limits
 how flat it can drain but does not stop it running hot in the meantime.
+.B nosleep insist
+disables even that cutoff, so use it only while attended or on AC power.
 .PP
 The
 .B disablesleep
@@ -110,6 +148,10 @@ PID and deadline (epoch seconds) of the pending auto-off timer.
 Apps that survive a clean, one name per line
 (respects
 .BR XDG_CONFIG_HOME ).
+.TP
+.I ~/.config/nosleep/sound
+Lid-close chime setting: a system-sound name, or
+.BR off .
 .SH EXAMPLES
 .TP
 .B nosleep 1h
