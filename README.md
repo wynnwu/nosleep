@@ -87,7 +87,7 @@ Two safety defaults are always on:
 
 ## Lid-close chime 🔔
 
-On a laptop, closing the lid while nosleep is on plays a short sound, so you get audible confirmation it's holding the machine awake without reopening to check. Opening the lid is silent.
+On a laptop, closing the lid while nosleep is on plays a short sound twice — a double chime that's harder to miss — so you get audible confirmation it's holding the machine awake without reopening to check. Opening the lid is silent.
 
 ```sh
 nosleep sound          # show the current chime and list available sounds

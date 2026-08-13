@@ -15,7 +15,7 @@
 # credentials are fresh), so no password is needed when it fires.
 set -euo pipefail
 
-VERSION="1.3.0"
+VERSION="1.3.1"
 PIDFILE="/tmp/nosleep-timer.pid"   # format: "<pid> <deadline-epoch>"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nosleep"
 WHITELIST_FILE="$CONFIG_DIR/whitelist"
@@ -187,10 +187,11 @@ load_sound() {
   echo "$DEFAULT_SOUND"
 }
 
-# Play a chime into the logged-in user's audio session. Called from the root
-# watcher, which can't reach that session directly, so it hops to the console
-# user via launchctl. Best-effort and backgrounded: never blocks or breaks the
-# watcher's real job.
+# Play the chime twice into the logged-in user's audio session. Called from the
+# root watcher, which can't reach that session directly, so it hops to the
+# console user via launchctl. The two plays run back-to-back (afplay blocks) for
+# a double chime that's harder to miss. Best-effort and backgrounded: never
+# blocks or breaks the watcher's real job.
 play_sound() {
   local f="/System/Library/Sounds/$1.aiff"
   [ -f "$f" ] || return 0
@@ -199,7 +200,7 @@ play_sound() {
   { [ -z "$user" ] || [ "$user" = root ]; } && return 0
   uid=$(id -u "$user" 2>/dev/null || true)
   [ -n "$uid" ] || return 0
-  launchctl asuser "$uid" sudo -u "$user" afplay "$f" >/dev/null 2>&1 &
+  launchctl asuser "$uid" sudo -u "$user" sh -c 'afplay "$1"; afplay "$1"' _ "$f" >/dev/null 2>&1 &
 }
 
 # Interactive 'nosleep sound' subcommand: show/enable/disable/set the chime.
