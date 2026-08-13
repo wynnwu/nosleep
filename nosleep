@@ -15,7 +15,7 @@
 # credentials are fresh), so no password is needed when it fires.
 set -euo pipefail
 
-VERSION="1.3.1"
+VERSION="1.3.2"
 PIDFILE="/tmp/nosleep-timer.pid"   # format: "<pid> <deadline-epoch>"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nosleep"
 WHITELIST_FILE="$CONFIG_DIR/whitelist"
@@ -24,6 +24,7 @@ BATTERY_MIN=15          # auto-restore sleep if battery drops below this percent
 POLL_INTERVAL=30        # seconds between battery/deadline checks in the watcher
 WARN_ABOVE=3600         # confirm before keeping awake longer than this (1h)
 LID_POLL=2              # seconds between lid checks while the lid is open (chime)
+CHIME_GAP=0.5           # seconds between the two lid-close chimes (double chime)
 DEFAULT_SOUND="Submarine"        # chime on lid-close; change via 'nosleep sound'
 SOUND_FILE="$CONFIG_DIR/sound"   # stores the chime name, or "off"
 
@@ -189,9 +190,11 @@ load_sound() {
 
 # Play the chime twice into the logged-in user's audio session. Called from the
 # root watcher, which can't reach that session directly, so it hops to the
-# console user via launchctl. The two plays run back-to-back (afplay blocks) for
-# a double chime that's harder to miss. Best-effort and backgrounded: never
-# blocks or breaks the watcher's real job.
+# console user via launchctl. The first play is backgrounded and the second
+# fires after CHIME_GAP, so the two onsets are a fixed, snappy interval apart
+# instead of waiting out the first sound's (often long, near-silent) tail --
+# e.g. Submarine's ~1.5s sonar echo. Best-effort and backgrounded: never blocks
+# or breaks the watcher's real job.
 play_sound() {
   local f="/System/Library/Sounds/$1.aiff"
   [ -f "$f" ] || return 0
@@ -200,7 +203,8 @@ play_sound() {
   { [ -z "$user" ] || [ "$user" = root ]; } && return 0
   uid=$(id -u "$user" 2>/dev/null || true)
   [ -n "$uid" ] || return 0
-  launchctl asuser "$uid" sudo -u "$user" sh -c 'afplay "$1"; afplay "$1"' _ "$f" >/dev/null 2>&1 &
+  launchctl asuser "$uid" sudo -u "$user" \
+    sh -c 'afplay "$2" & sleep "$1"; afplay "$2"' _ "$CHIME_GAP" "$f" >/dev/null 2>&1 &
 }
 
 # Interactive 'nosleep sound' subcommand: show/enable/disable/set the chime.
