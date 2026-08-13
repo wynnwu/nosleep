@@ -203,6 +203,10 @@ play_sound() {
   { [ -z "$user" ] || [ "$user" = root ]; } && return 0
   uid=$(id -u "$user" 2>/dev/null || true)
   [ -n "$uid" ] || return 0
+  # The $1/$2 inside the inner sh -c are ITS positional params (CHIME_GAP and
+  # the sound file, passed after _); single quotes are deliberate so they don't
+  # expand in this outer shell.
+  # shellcheck disable=SC2016
   launchctl asuser "$uid" sudo -u "$user" \
     sh -c 'afplay "$2" & sleep "$1"; afplay "$2"' _ "$CHIME_GAP" "$f" >/dev/null 2>&1 &
 }
