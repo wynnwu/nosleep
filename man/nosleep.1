@@ -1,4 +1,4 @@
-.TH NOSLEEP 1 "August 2026" "nosleep 1.3.2" "User Commands"
+.TH NOSLEEP 1 "August 2026" "nosleep 1.3.3" "User Commands"
 .SH NAME
 nosleep \- keep a Mac awake with the lid closed, with an optional auto-off timer
 .SH SYNOPSIS
@@ -113,10 +113,13 @@ It is on by default (the
 sound) and managed with
 .BR "nosleep sound" .
 The sound is played into the logged-in user's audio session, so it is
-audible with the lid shut. While the lid is open it is polled about every
-two seconds so the chime is prompt; once closed, polling drops back to the
-roughly 30-second cadence, so reopening and re-closing within that window
-may not chime. Desktops (no lid) are unaffected.
+audible with the lid shut. The output volume is briefly raised to 65% for
+the chime (which also unmutes), so it is heard even if the machine is muted
+or turned down, then the previous volume and mute state are restored. While
+the lid is open it is polled about every two seconds so the chime is prompt;
+once closed, polling drops back to the roughly 30-second cadence, so
+reopening and re-closing within that window may not chime. Desktops (no lid)
+are unaffected.
 .SH HOW IT WORKS
 State changes call
 .BR "sudo pmset -a disablesleep" ,
