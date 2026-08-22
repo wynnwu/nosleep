@@ -96,7 +96,7 @@ nosleep sound off      # silence it
 nosleep sound on       # back to the default (Submarine)
 ```
 
-On by default. It's laptop-only (it needs a lid), the sound plays through your speakers even with the lid shut, and it lands within about 2 seconds of closing. Reopening and re-closing in quick succession may skip the chime.
+On by default. It's laptop-only (it needs a lid), the sound plays through your speakers even with the lid shut, and it lands within about 2 seconds of closing. The output volume is raised to 60% right before the chime, so it's audible even if the machine is muted or turned down. Reopening and re-closing in quick succession may skip the chime.
 
 ## Clean mode
 
